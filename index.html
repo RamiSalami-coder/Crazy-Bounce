@@ -208,7 +208,7 @@
       const restitution = 0.82;
       const wallFriction = 0.992;
       const POWER_SCALE = 8.8;
-      const MAX_PULL = 140;
+      const MAX_PULL = 95;
 
       const ball = {
         x: 120, y: 520, r: 16,
@@ -494,19 +494,20 @@
         if (!isDragging) return;
 
         const p = toWorld(e);
-        const dx = p.x - ball.x;
-        const dy = p.y - ball.y;
+        let dx = p.x - ball.x;
+        let dy = p.y - ball.y;
         const d = Math.hypot(dx, dy);
 
-        if (d > MAX_PULL) {
+        if (d > MAX_PULL && d > 0) {
           const scale = MAX_PULL / d;
-          dragPos = {
-            x: ball.x + dx * scale,
-            y: ball.y + dy * scale
-          };
-        } else {
-          dragPos = p;
+          dx *= scale;
+          dy *= scale;
         }
+
+        dragPos = {
+          x: ball.x + dx,
+          y: ball.y + dy
+        };
 
         e.preventDefault();
       }
@@ -514,14 +515,20 @@
       function onUp() {
         if (!isDragging || !dragPos) return;
 
-        const dx = ball.x - dragPos.x;
-        const dy = ball.y - dragPos.y;
-        const d = Math.hypot(dx, dy);
+        let dx = ball.x - dragPos.x;
+        let dy = ball.y - dragPos.y;
+        let d = Math.hypot(dx, dy);
 
-        const pull = Math.min(d, MAX_PULL);
+        if (d > MAX_PULL && d > 0) {
+          const scale = MAX_PULL / d;
+          dx *= scale;
+          dy *= scale;
+          d = MAX_PULL;
+        }
+
         const nx = d > 0 ? dx / d : 0;
         const ny = d > 0 ? dy / d : 0;
-        const speed = pull * POWER_SCALE;
+        const speed = d * POWER_SCALE;
 
         ball.vx = nx * speed;
         ball.vy = ny * speed;
@@ -695,11 +702,6 @@
         }
         ctx.restore();
 
-        ctx.save();
-        ctx.fillStyle = 'rgba(255,255,255,0.08)';
-        ctx.fillRect(20, world.h - 20, world.w - 40, 16);
-        ctx.restore();
-
         const pulse = 1 + Math.sin(t * 6) * 0.07;
         ctx.save();
         ctx.translate(goal.x + goal.size / 2, goal.y + goal.size / 2);
@@ -716,6 +718,13 @@
         for (const s of allSegments(t)) {
           if (s.mover) drawSegment(s, '#ffc56b', 9);
         }
+
+        ctx.save();
+        ctx.fillStyle = '#5be7ff';
+        ctx.shadowColor = 'rgba(91, 231, 255, 0.8)';
+        ctx.shadowBlur = 14;
+        ctx.fillRect(20, world.h - 24, world.w - 40, 8);
+        ctx.restore();
 
         for (const sp of spikes) {
           const points = 7;
@@ -737,15 +746,22 @@
         }
 
         if (isDragging && dragPos && !ball.launched) {
-          const dx = ball.x - dragPos.x;
-          const dy = ball.y - dragPos.y;
-          const d = Math.hypot(dx, dy);
-          const pull = Math.min(d, MAX_PULL);
+          let dx = ball.x - dragPos.x;
+          let dy = ball.y - dragPos.y;
+          let d = Math.hypot(dx, dy);
+
+          if (d > MAX_PULL && d > 0) {
+            const scale = MAX_PULL / d;
+            dx *= scale;
+            dy *= scale;
+            d = MAX_PULL;
+          }
+
           const nx = d > 0 ? dx / d : 0;
           const ny = d > 0 ? dy / d : 0;
 
-          const aimX = ball.x - nx * pull;
-          const aimY = ball.y - ny * pull;
+          const aimX = ball.x - nx * d;
+          const aimY = ball.y - ny * d;
 
           ctx.strokeStyle = 'rgba(91,231,255,0.95)';
           ctx.lineWidth = 4;
@@ -756,7 +772,7 @@
           ctx.stroke();
           ctx.setLineDash([]);
 
-          const preview = simulateTrajectory(ball.x, ball.y, nx * pull * POWER_SCALE, ny * pull * POWER_SCALE, t);
+          const preview = simulateTrajectory(ball.x, ball.y, nx * d * POWER_SCALE, ny * d * POWER_SCALE, t);
           ctx.fillStyle = 'rgba(91,231,255,0.85)';
           for (let i = 0; i < preview.length; i++) {
             const p = preview[i];
