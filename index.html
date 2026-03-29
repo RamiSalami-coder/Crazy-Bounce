@@ -207,6 +207,9 @@
       const airDrag = 0.994;
       const restitution = 0.82;
       const wallFriction = 0.992;
+      const POWER_SCALE = 8.8;
+      const MAX_PULL = 140;
+
       const ball = {
         x: 120, y: 520, r: 16,
         vx: 0, vy: 0,
@@ -225,10 +228,8 @@
       let winTimer = 0;
       let failedTimer = 0;
 
-      const POWER_SCALE = 8.8;
       const viewport = { scale: 1, ox: 0, oy: 0 };
 
-      // ------- Audio -------
       const AudioFX = {
         ctx: null,
         ensure() {
@@ -260,7 +261,6 @@
         }
       };
 
-      // ------- Geometry helpers -------
       const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
       const dist2 = (ax, ay, bx, by) => {
         const dx = bx - ax, dy = by - ay;
@@ -283,35 +283,30 @@
         arr.push({ a: { x: x - pad, y: y + h + pad }, b: { x: x - pad, y: y - pad } });
       }
 
-      // ------- Level generation -------
       function generateLevel(i) {
         const n = i + 1;
         const walls = [];
         const hazardSpikes = [];
         const moving = [];
 
-        // Borders (inside boundary guides)
         addRectWalls(20, 20, world.w - 40, world.h - 40, walls);
-        // Extra visible floor wall for clearer rebounds.
         walls.push({ a: { x: 20, y: world.h - 40 }, b: { x: world.w - 20, y: world.h - 40 } });
 
-        // Ball start and target progression
         const side = n % 4;
         if (side === 0) {
           ball.startX = 110; ball.startY = 520;
-          goal.x = world.w - 80; goal.y = 40; // top-right
+          goal.x = world.w - 80; goal.y = 40;
         } else if (side === 1) {
           ball.startX = 860; ball.startY = 520;
-          goal.x = 30; goal.y = 40; // top-left
+          goal.x = 30; goal.y = 40;
         } else if (side === 2) {
           ball.startX = 130; ball.startY = 120;
-          goal.x = world.w - 80; goal.y = world.h - 95; // bottom-right
+          goal.x = world.w - 80; goal.y = world.h - 95;
         } else {
           ball.startX = 860; ball.startY = 130;
-          goal.x = 30; goal.y = world.h - 95; // bottom-left
+          goal.x = 30; goal.y = world.h - 95;
         }
 
-        // Core obstacle pattern algorithmic variety
         const bars = Math.min(3 + Math.floor(n / 4), 11);
         for (let b = 0; b < bars; b++) {
           const t = (b + 1) / (bars + 1);
@@ -324,7 +319,6 @@
           walls.push({ a: { x: cx - dx, y: cy - dy }, b: { x: cx + dx, y: cy + dy } });
         }
 
-        // Funnel near goal every few levels
         if (n % 3 === 0 || n > 25) {
           const gx = goal.x, gy = goal.y;
           const cx = gx + goal.size * 0.5;
@@ -333,7 +327,6 @@
           walls.push({ a: { x: cx + 140, y: cy + 120 }, b: { x: cx + 30, y: cy + 35 } });
         }
 
-        // Tight corridors for harder levels
         if (n > 10) {
           const x = 220 + (n * 29) % 420;
           addRectWalls(x, 140, 70, 330, walls);
@@ -343,7 +336,6 @@
           addRectWalls(360, y, 280, 60, walls);
         }
 
-        // Spikes in later levels
         if (n > 15) {
           const count = Math.min(2 + Math.floor((n - 16) / 4), 8);
           for (let s = 0; s < count; s++) {
@@ -353,7 +345,6 @@
           }
         }
 
-        // Moving walls for advanced levels
         if (n > 25) {
           const moversCount = Math.min(1 + Math.floor((n - 25) / 8), 4);
           for (let m = 0; m < moversCount; m++) {
@@ -371,7 +362,6 @@
           }
         }
 
-        // Ensure clear launch zone
         for (let w = walls.length - 1; w >= 0; w--) {
           const p = nearestPointOnSegment(ball.startX, ball.startY, walls[w].a, walls[w].b);
           if (dist2(p.x, p.y, ball.startX, ball.startY) < 90 * 90) walls.splice(w, 1);
@@ -425,12 +415,36 @@
         let x = startX, y = startY;
         let tvx = vx, tvy = vy;
         const segs = allSegments(tNow);
+
         for (let i = 0; i < 45; i++) {
           tvy += gravity * 0.016;
           tvx *= airDrag;
           tvy *= airDrag;
           x += tvx * 0.016;
           y += tvy * 0.016;
+
+          if (x - ball.r < 20) {
+            x = 20 + ball.r;
+            tvx = Math.abs(tvx) * restitution;
+            tvy *= wallFriction;
+          }
+          if (x + ball.r > world.w - 20) {
+            x = world.w - 20 - ball.r;
+            tvx = -Math.abs(tvx) * restitution;
+            tvy *= wallFriction;
+          }
+          if (y - ball.r < 20) {
+            y = 20 + ball.r;
+            tvy = Math.abs(tvy) * restitution;
+            tvx *= wallFriction;
+          }
+          if (y + ball.r > world.h - 20) {
+            y = world.h - 20 - ball.r;
+            tvy = -Math.abs(tvy) * restitution;
+            tvx *= 0.96;
+            if (Math.abs(tvy) < 35) tvy = 0;
+            if (Math.abs(tvx) < 10) tvx = 0;
+          }
 
           for (const s of segs) {
             const p = nearestPointOnSegment(x, y, s.a, s.b);
@@ -457,7 +471,6 @@
         return pts;
       }
 
-      // ------- Input -------
       function toWorld(e) {
         const rect = canvas.getBoundingClientRect();
         const touch = e.touches ? e.touches[0] : e;
@@ -479,19 +492,37 @@
 
       function onMove(e) {
         if (!isDragging) return;
-        dragPos = toWorld(e);
+
+        const p = toWorld(e);
+        const dx = p.x - ball.x;
+        const dy = p.y - ball.y;
+        const d = Math.hypot(dx, dy);
+
+        if (d > MAX_PULL) {
+          const scale = MAX_PULL / d;
+          dragPos = {
+            x: ball.x + dx * scale,
+            y: ball.y + dy * scale
+          };
+        } else {
+          dragPos = p;
+        }
+
         e.preventDefault();
       }
 
       function onUp() {
         if (!isDragging || !dragPos) return;
+
         const dx = ball.x - dragPos.x;
         const dy = ball.y - dragPos.y;
         const d = Math.hypot(dx, dy);
-        const pull = d;
+
+        const pull = Math.min(d, MAX_PULL);
         const nx = d > 0 ? dx / d : 0;
         const ny = d > 0 ? dy / d : 0;
         const speed = pull * POWER_SCALE;
+
         ball.vx = nx * speed;
         ball.vy = ny * speed;
         ball.launched = true;
@@ -521,7 +552,6 @@
         setTimeout(() => toast.classList.remove('show'), 850);
       }
 
-      // ------- Physics update -------
       let last = performance.now();
       function tick(now) {
         const dt = Math.min(0.024, (now - last) / 1000);
@@ -538,7 +568,6 @@
             ball.x += ball.vx * dt;
             ball.y += ball.vy * dt;
 
-            // Ball-world boundary rebound
             if (ball.x - ball.r < 20) {
               ball.x = 20 + ball.r;
               ball.vx = Math.abs(ball.vx) * restitution;
@@ -560,11 +589,14 @@
             if (ball.y + ball.r > world.h - 20) {
               ball.y = world.h - 20 - ball.r;
               ball.vy = -Math.abs(ball.vy) * restitution;
-              ball.vx *= wallFriction;
+              ball.vx *= 0.96;
+
+              if (Math.abs(ball.vy) < 35) ball.vy = 0;
+              if (Math.abs(ball.vx) < 10) ball.vx = 0;
+
               AudioFX.bounce(Math.abs(ball.vy));
             }
 
-            // Segment collisions
             for (const s of segs) {
               const p = nearestPointOnSegment(ball.x, ball.y, s.a, s.b);
               const dx = ball.x - p.x;
@@ -589,7 +621,6 @@
               }
             }
 
-            // Spike hazards
             for (const sp of spikes) {
               if (dist2(ball.x, ball.y, sp.x, sp.y) < (ball.r + sp.r - 4) ** 2) {
                 failedTimer = 0.5;
@@ -600,7 +631,6 @@
               }
             }
 
-            // Goal test
             if (
               ball.x > goal.x + ball.r * 0.3 &&
               ball.x < goal.x + goal.size - ball.r * 0.3 &&
@@ -618,9 +648,9 @@
               }
             }
 
-            // Stop tiny jitter
             if (Math.hypot(ball.vx, ball.vy) < 24 && ball.y > world.h - 20 - ball.r - 0.5) {
-              ball.vx = 0; ball.vy = 0;
+              ball.vx = 0;
+              ball.vy = 0;
             }
           }
 
@@ -640,7 +670,6 @@
         requestAnimationFrame(tick);
       }
 
-      // ------- Render -------
       function drawSegment(seg, color = '#9cd4ff', width = 7) {
         ctx.strokeStyle = color;
         ctx.lineWidth = width;
@@ -654,7 +683,6 @@
       function render(t) {
         ctx.clearRect(0, 0, world.w, world.h);
 
-        // Background grid
         ctx.save();
         ctx.globalAlpha = 0.15;
         ctx.strokeStyle = '#9fb7ff';
@@ -667,7 +695,11 @@
         }
         ctx.restore();
 
-        // Goal
+        ctx.save();
+        ctx.fillStyle = 'rgba(255,255,255,0.08)';
+        ctx.fillRect(20, world.h - 20, world.w - 40, 16);
+        ctx.restore();
+
         const pulse = 1 + Math.sin(t * 6) * 0.07;
         ctx.save();
         ctx.translate(goal.x + goal.size / 2, goal.y + goal.size / 2);
@@ -680,13 +712,11 @@
         ctx.fillRect(-goal.size / 2, -goal.size / 2, goal.size, goal.size);
         ctx.restore();
 
-        // Walls
         for (const s of segments) drawSegment(s, '#88bafc', 8);
         for (const s of allSegments(t)) {
           if (s.mover) drawSegment(s, '#ffc56b', 9);
         }
 
-        // Spikes
         for (const sp of spikes) {
           const points = 7;
           ctx.save();
@@ -706,12 +736,11 @@
           ctx.restore();
         }
 
-        // Aim + trajectory preview
         if (isDragging && dragPos && !ball.launched) {
           const dx = ball.x - dragPos.x;
           const dy = ball.y - dragPos.y;
           const d = Math.hypot(dx, dy);
-          const pull = d;
+          const pull = Math.min(d, MAX_PULL);
           const nx = d > 0 ? dx / d : 0;
           const ny = d > 0 ? dy / d : 0;
 
@@ -740,7 +769,6 @@
           ctx.globalAlpha = 1;
         }
 
-        // Ball
         const speed = Math.hypot(ball.vx, ball.vy);
         const glow = Math.min(1, speed / 1000);
         ctx.save();
@@ -752,7 +780,6 @@
         ctx.fill();
         ctx.restore();
 
-        // Win sparkles
         if (win) {
           for (let i = 0; i < 16; i++) {
             const a = (i / 16) * Math.PI * 2 + t * 5;
