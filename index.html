@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Crazy Bounce Trick Shot</title>
+  <style>
+    :root {
+      --bg-0: #0f1226;
+      --bg-1: #1b2152;
+      --panel: rgba(255, 255, 255, 0.08);
+      --panel-border: rgba(255, 255, 255, 0.18);
+      --text: #f7f9ff;
+      --muted: #b8bfd9;
+      --accent: #5be7ff;
+      --success: #58f5a8;
+      --danger: #ff6b7a;
+    }
+
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: radial-gradient(circle at 20% 20%, #2a3175 0%, var(--bg-0) 45%, #080a16 100%);
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--text);
+      overflow: hidden;
+      overscroll-behavior: none;
+    }
+
+    #app {
+      height: 100%;
+      display: grid;
+      grid-template-rows: auto 1fr auto auto;
+      gap: 10px;
+      padding: calc(10px + env(safe-area-inset-top)) 10px calc(12px + env(safe-area-inset-bottom));
+      max-width: 560px;
+      margin: 0 auto;
+    }
+
+    .topbar, .bottombar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 14px;
+      padding: 10px 12px;
+      backdrop-filter: blur(8px);
+    }
+
+    .meta {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.1;
+    }
+
+    .meta small { color: var(--muted); font-weight: 500; }
+    .meta strong { font-size: clamp(1rem, 2.8vw, 1.2rem); }
+
+    .btn {
+      border: 1px solid var(--panel-border);
+      background: rgba(255, 255, 255, 0.12);
+      color: var(--text);
+      padding: 9px 12px;
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: 0.9rem;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+
+    .btn:active { transform: scale(0.98); }
+
+    #gameWrap {
+      position: relative;
+      min-height: 0;
+      height: 100%;
+      max-height: 100%;
+      aspect-ratio: 9 / 16;
+      background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
+      border: 1px solid var(--panel-border);
+      border-radius: 18px;
+      overflow: hidden;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      touch-action: none;
+    }
+
+    #toast {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%) scale(0.8);
+      background: rgba(10, 16, 40, 0.88);
+      border: 1px solid rgba(255,255,255,0.24);
+      border-radius: 16px;
+      padding: 14px 18px;
+      font-size: clamp(1rem, 3vw, 1.4rem);
+      font-weight: 800;
+      opacity: 0;
+      pointer-events: none;
+      transition: 240ms ease;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    #toast.show {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+    }
+
+    .hint {
+      font-size: 0.84rem;
+      color: var(--muted);
+      text-align: center;
+      user-select: none;
+    }
+
+    @media (max-width: 600px) {
+      #app {
+        gap: 8px;
+        padding-left: 8px;
+        padding-right: 8px;
+      }
+
+      .topbar, .bottombar {
+        border-radius: 12px;
+        padding: 10px;
+      }
+
+      .btn {
+        flex: 1;
+        min-height: 46px;
+        font-size: 0.96rem;
+      }
+
+      .hint {
+        font-size: 0.78rem;
+        padding: 0 4px;
+      }
+    }
+
+    @media (orientation: landscape) and (max-height: 520px) {
+      #app {
+        max-width: 980px;
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: auto 1fr auto;
+        align-items: stretch;
+      }
+
+      .topbar { grid-column: 1 / 3; }
+      #gameWrap {
+        grid-column: 1 / 3;
+        aspect-ratio: 16 / 9;
+      }
+      .bottombar { grid-column: 1 / 3; }
+      .hint { grid-column: 1 / 3; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="topbar">
+      <div class="meta"><small>Crazy Trick Shot</small><strong id="levelLabel">Level 1 / 50</strong></div>
+      <div class="meta" style="text-align:right"><small>Best Unlocked</small><strong id="bestLabel">1</strong></div>
+    </div>
+
+    <div id="gameWrap">
+      <canvas id="game"></canvas>
+      <div id="toast">NICE SHOT!</div>
+    </div>
+
+    <div class="bottombar">
+      <button class="btn" id="prevBtn">◀ Prev</button>
+      <button class="btn" id="resetBtn">↺ Reset</button>
+      <button class="btn" id="nextBtn">Next ▶</button>
+    </div>
+    <div class="hint">Drag from the ball to aim. Pull farther for more power. Reach the glowing goal.</div>
+  </div>
+
+  <script>
+    (() => {
+      const canvas = document.getElementById('game');
+      const ctx = canvas.getContext('2d');
+      const wrap = document.getElementById('gameWrap');
+      const levelLabel = document.getElementById('levelLabel');
+      const bestLabel = document.getElementById('bestLabel');
+      const toast = document.getElementById('toast');
+      const resetBtn = document.getElementById('resetBtn');
+      const nextBtn = document.getElementById('nextBtn');
+      const prevBtn = document.getElementById('prevBtn');
+
+      const TOTAL_LEVELS = 50;
+      const STORAGE_KEY = 'crazy_bounce_best';
+      let unlocked = Math.max(1, Math.min(TOTAL_LEVELS, Number(localStorage.getItem(STORAGE_KEY) || 1)));
+      let levelIndex = 0;
+
+      const world = { w: 1000, h: 620 };
+      const gravity = 1500;
+      const airDrag = 0.994;
+      const restitution = 0.82;
+      const wallFriction = 0.992;
+      const ball = {
+        x: 120, y: 520, r: 16,
+        vx: 0, vy: 0,
+        startX: 120, startY: 520,
+        launched: false,
+        canAim: true,
+      };
+
+      const goal = { x: 860, y: 60, size: 54 };
+      let segments = [];
+      let spikes = [];
+      let movers = [];
+      let isDragging = false;
+      let dragPos = null;
+      let win = false;
+      let winTimer = 0;
+      let failedTimer = 0;
+
+      const POWER_SCALE = 8.8;
+      const viewport = { scale: 1, ox: 0, oy: 0 };
+
+      // ------- Audio -------
+      const AudioFX = {
+        ctx: null,
+        ensure() {
+          if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+          if (this.ctx.state === 'suspended') this.ctx.resume();
+        },
+        beep(freq = 400, dur = 0.05, type = 'sine', gain = 0.04) {
+          if (!this.ctx) return;
+          const o = this.ctx.createOscillator();
+          const g = this.ctx.createGain();
+          o.type = type;
+          o.frequency.value = freq;
+          g.gain.value = gain;
+          o.connect(g);
+          g.connect(this.ctx.destination);
+          o.start();
+          g.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + dur);
+          o.stop(this.ctx.currentTime + dur);
+        },
+        bounce(speed) {
+          this.beep(220 + Math.min(500, speed * 0.2), 0.04, 'triangle', 0.03);
+        },
+        score() {
+          this.beep(600, 0.08, 'sine', 0.05);
+          setTimeout(() => this.beep(900, 0.08, 'sine', 0.05), 60);
+        },
+        fail() {
+          this.beep(180, 0.12, 'sawtooth', 0.05);
+        }
+      };
+
+      // ------- Geometry helpers -------
+      const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+      const dist2 = (ax, ay, bx, by) => {
+        const dx = bx - ax, dy = by - ay;
+        return dx * dx + dy * dy;
+      };
+
+      function nearestPointOnSegment(px, py, a, b) {
+        const abx = b.x - a.x;
+        const aby = b.y - a.y;
+        const ab2 = abx * abx + aby * aby;
+        let t = ((px - a.x) * abx + (py - a.y) * aby) / ab2;
+        t = clamp(t, 0, 1);
+        return { x: a.x + abx * t, y: a.y + aby * t, t };
+      }
+
+      function addRectWalls(x, y, w, h, arr, pad = 0) {
+        arr.push({ a: { x: x - pad, y: y - pad }, b: { x: x + w + pad, y: y - pad } });
+        arr.push({ a: { x: x + w + pad, y: y - pad }, b: { x: x + w + pad, y: y + h + pad } });
+        arr.push({ a: { x: x + w + pad, y: y + h + pad }, b: { x: x - pad, y: y + h + pad } });
+        arr.push({ a: { x: x - pad, y: y + h + pad }, b: { x: x - pad, y: y - pad } });
+      }
+
+      // ------- Level generation -------
+      function generateLevel(i) {
+        const n = i + 1;
+        const walls = [];
+        const hazardSpikes = [];
+        const moving = [];
+
+        // Borders (inside boundary guides)
+        addRectWalls(20, 20, world.w - 40, world.h - 40, walls);
+        // Extra visible floor wall for clearer rebounds.
+        walls.push({ a: { x: 20, y: world.h - 40 }, b: { x: world.w - 20, y: world.h - 40 } });
+
+        // Ball start and target progression
+        const side = n % 4;
+        if (side === 0) {
+          ball.startX = 110; ball.startY = 520;
+          goal.x = world.w - 80; goal.y = 40; // top-right
+        } else if (side === 1) {
+          ball.startX = 860; ball.startY = 520;
+          goal.x = 30; goal.y = 40; // top-left
+        } else if (side === 2) {
+          ball.startX = 130; ball.startY = 120;
+          goal.x = world.w - 80; goal.y = world.h - 95; // bottom-right
+        } else {
+          ball.startX = 860; ball.startY = 130;
+          goal.x = 30; goal.y = world.h - 95; // bottom-left
+        }
+
+        // Core obstacle pattern algorithmic variety
+        const bars = Math.min(3 + Math.floor(n / 4), 11);
+        for (let b = 0; b < bars; b++) {
+          const t = (b + 1) / (bars + 1);
+          const cx = 120 + t * 760 + ((n * 71 + b * 37) % 60 - 30);
+          const cy = 110 + ((n * 43 + b * 97) % 380);
+          const len = 120 + ((n * 23 + b * 19) % 180);
+          const ang = ((n * 17 + b * 47) % 150 - 75) * Math.PI / 180;
+          const dx = Math.cos(ang) * len * 0.5;
+          const dy = Math.sin(ang) * len * 0.5;
+          walls.push({ a: { x: cx - dx, y: cy - dy }, b: { x: cx + dx, y: cy + dy } });
+        }
+
+        // Funnel near goal every few levels
+        if (n % 3 === 0 || n > 25) {
+          const gx = goal.x, gy = goal.y;
+          const cx = gx + goal.size * 0.5;
+          const cy = gy + goal.size * 0.5;
+          walls.push({ a: { x: cx - 140, y: cy + 120 }, b: { x: cx - 30, y: cy + 35 } });
+          walls.push({ a: { x: cx + 140, y: cy + 120 }, b: { x: cx + 30, y: cy + 35 } });
+        }
+
+        // Tight corridors for harder levels
+        if (n > 10) {
+          const x = 220 + (n * 29) % 420;
+          addRectWalls(x, 140, 70, 330, walls);
+        }
+        if (n > 18) {
+          const y = 90 + (n * 31) % 280;
+          addRectWalls(360, y, 280, 60, walls);
+        }
+
+        // Spikes in later levels
+        if (n > 15) {
+          const count = Math.min(2 + Math.floor((n - 16) / 4), 8);
+          for (let s = 0; s < count; s++) {
+            const x = 160 + ((n * 37 + s * 113) % 680);
+            const y = 90 + ((n * 53 + s * 67) % 420);
+            hazardSpikes.push({ x, y, r: 18 });
+          }
+        }
+
+        // Moving walls for advanced levels
+        if (n > 25) {
+          const moversCount = Math.min(1 + Math.floor((n - 25) / 8), 4);
+          for (let m = 0; m < moversCount; m++) {
+            const baseX = 220 + ((n * 41 + m * 199) % 560);
+            const baseY = 130 + ((n * 59 + m * 79) % 300);
+            const len = 120 + ((n * 13 + m * 21) % 100);
+            const vertical = (m + n) % 2 === 0;
+            moving.push({
+              baseX, baseY, len,
+              amp: 35 + (m * 10),
+              speed: 0.9 + m * 0.35,
+              phase: (n * 0.6 + m),
+              vertical,
+            });
+          }
+        }
+
+        // Ensure clear launch zone
+        for (let w = walls.length - 1; w >= 0; w--) {
+          const p = nearestPointOnSegment(ball.startX, ball.startY, walls[w].a, walls[w].b);
+          if (dist2(p.x, p.y, ball.startX, ball.startY) < 90 * 90) walls.splice(w, 1);
+        }
+
+        return { walls, hazardSpikes, moving };
+      }
+
+      function loadLevel(i) {
+        levelIndex = clamp(i, 0, TOTAL_LEVELS - 1);
+        const lvl = generateLevel(levelIndex);
+        segments = lvl.walls;
+        spikes = lvl.hazardSpikes;
+        movers = lvl.moving;
+        resetBall();
+        updateLabels();
+      }
+
+      function resetBall() {
+        ball.x = ball.startX;
+        ball.y = ball.startY;
+        ball.vx = 0;
+        ball.vy = 0;
+        ball.launched = false;
+        ball.canAim = true;
+        isDragging = false;
+        dragPos = null;
+        win = false;
+      }
+
+      function updateLabels() {
+        levelLabel.textContent = `Level ${levelIndex + 1} / ${TOTAL_LEVELS}`;
+        bestLabel.textContent = String(unlocked);
+      }
+
+      function allSegments(t) {
+        const arr = segments.slice();
+        for (const m of movers) {
+          const osc = Math.sin(t * m.speed + m.phase) * m.amp;
+          if (m.vertical) {
+            arr.push({ a: { x: m.baseX, y: m.baseY - m.len / 2 + osc }, b: { x: m.baseX, y: m.baseY + m.len / 2 + osc }, mover: true });
+          } else {
+            arr.push({ a: { x: m.baseX - m.len / 2 + osc, y: m.baseY }, b: { x: m.baseX + m.len / 2 + osc, y: m.baseY }, mover: true });
+          }
+        }
+        return arr;
+      }
+
+      function simulateTrajectory(startX, startY, vx, vy, tNow) {
+        const pts = [];
+        let x = startX, y = startY;
+        let tvx = vx, tvy = vy;
+        const segs = allSegments(tNow);
+        for (let i = 0; i < 45; i++) {
+          tvy += gravity * 0.016;
+          tvx *= airDrag;
+          tvy *= airDrag;
+          x += tvx * 0.016;
+          y += tvy * 0.016;
+
+          for (const s of segs) {
+            const p = nearestPointOnSegment(x, y, s.a, s.b);
+            const dx = x - p.x, dy = y - p.y;
+            const d2 = dx * dx + dy * dy;
+            if (d2 < (ball.r + 2) * (ball.r + 2)) {
+              const d = Math.max(0.0001, Math.sqrt(d2));
+              const nx = dx / d, ny = dy / d;
+              x = p.x + nx * (ball.r + 2);
+              y = p.y + ny * (ball.r + 2);
+              const vn = tvx * nx + tvy * ny;
+              if (vn < 0) {
+                tvx -= (1 + restitution) * vn * nx;
+                tvy -= (1 + restitution) * vn * ny;
+                tvx *= 0.985;
+                tvy *= 0.985;
+              }
+            }
+          }
+
+          pts.push({ x, y });
+          if (x < 0 || x > world.w || y > world.h + 60) break;
+        }
+        return pts;
+      }
+
+      // ------- Input -------
+      function toWorld(e) {
+        const rect = canvas.getBoundingClientRect();
+        const touch = e.touches ? e.touches[0] : e;
+        const x = (touch.clientX - rect.left - viewport.ox) / viewport.scale;
+        const y = (touch.clientY - rect.top - viewport.oy) / viewport.scale;
+        return { x, y };
+      }
+
+      function onDown(e) {
+        if (win || !ball.canAim) return;
+        AudioFX.ensure();
+        const p = toWorld(e);
+        if (dist2(p.x, p.y, ball.x, ball.y) <= (ball.r + 20) ** 2 && !ball.launched) {
+          isDragging = true;
+          dragPos = p;
+          e.preventDefault();
+        }
+      }
+
+      function onMove(e) {
+        if (!isDragging) return;
+        dragPos = toWorld(e);
+        e.preventDefault();
+      }
+
+      function onUp() {
+        if (!isDragging || !dragPos) return;
+        const dx = ball.x - dragPos.x;
+        const dy = ball.y - dragPos.y;
+        const d = Math.hypot(dx, dy);
+        const pull = d;
+        const nx = d > 0 ? dx / d : 0;
+        const ny = d > 0 ? dy / d : 0;
+        const speed = pull * POWER_SCALE;
+        ball.vx = nx * speed;
+        ball.vy = ny * speed;
+        ball.launched = true;
+        ball.canAim = false;
+        isDragging = false;
+        dragPos = null;
+      }
+
+      canvas.addEventListener('mousedown', onDown);
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+      canvas.addEventListener('touchstart', onDown, { passive: false });
+      window.addEventListener('touchmove', onMove, { passive: false });
+      window.addEventListener('touchend', onUp);
+      window.addEventListener('touchcancel', onUp);
+
+      resetBtn.addEventListener('click', () => resetBall());
+      nextBtn.addEventListener('click', () => {
+        if (levelIndex + 1 < unlocked) loadLevel(levelIndex + 1);
+      });
+      prevBtn.addEventListener('click', () => loadLevel(levelIndex - 1));
+
+      function showToast(text, ok = true) {
+        toast.textContent = text;
+        toast.style.color = ok ? 'var(--success)' : 'var(--danger)';
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 850);
+      }
+
+      // ------- Physics update -------
+      let last = performance.now();
+      function tick(now) {
+        const dt = Math.min(0.024, (now - last) / 1000);
+        last = now;
+
+        if (!win) {
+          const segs = allSegments(now * 0.001);
+
+          if (ball.launched) {
+            ball.vy += gravity * dt;
+            ball.vx *= airDrag;
+            ball.vy *= airDrag;
+
+            ball.x += ball.vx * dt;
+            ball.y += ball.vy * dt;
+
+            // Ball-world boundary rebound
+            if (ball.x - ball.r < 20) {
+              ball.x = 20 + ball.r;
+              ball.vx = Math.abs(ball.vx) * restitution;
+              ball.vy *= wallFriction;
+              AudioFX.bounce(Math.abs(ball.vx));
+            }
+            if (ball.x + ball.r > world.w - 20) {
+              ball.x = world.w - 20 - ball.r;
+              ball.vx = -Math.abs(ball.vx) * restitution;
+              ball.vy *= wallFriction;
+              AudioFX.bounce(Math.abs(ball.vx));
+            }
+            if (ball.y - ball.r < 20) {
+              ball.y = 20 + ball.r;
+              ball.vy = Math.abs(ball.vy) * restitution;
+              ball.vx *= wallFriction;
+              AudioFX.bounce(Math.abs(ball.vy));
+            }
+            if (ball.y + ball.r > world.h - 20) {
+              ball.y = world.h - 20 - ball.r;
+              ball.vy = -Math.abs(ball.vy) * restitution;
+              ball.vx *= wallFriction;
+              AudioFX.bounce(Math.abs(ball.vy));
+            }
+
+            // Segment collisions
+            for (const s of segs) {
+              const p = nearestPointOnSegment(ball.x, ball.y, s.a, s.b);
+              const dx = ball.x - p.x;
+              const dy = ball.y - p.y;
+              const d2 = dx * dx + dy * dy;
+              const rr = ball.r * ball.r;
+              if (d2 < rr) {
+                const d = Math.max(0.0001, Math.sqrt(d2));
+                const nx = dx / d;
+                const ny = dy / d;
+                ball.x = p.x + nx * (ball.r + 0.4);
+                ball.y = p.y + ny * (ball.r + 0.4);
+
+                const vn = ball.vx * nx + ball.vy * ny;
+                if (vn < 0) {
+                  ball.vx -= (1 + restitution) * vn * nx;
+                  ball.vy -= (1 + restitution) * vn * ny;
+                  ball.vx *= wallFriction;
+                  ball.vy *= wallFriction;
+                  AudioFX.bounce(Math.abs(vn));
+                }
+              }
+            }
+
+            // Spike hazards
+            for (const sp of spikes) {
+              if (dist2(ball.x, ball.y, sp.x, sp.y) < (ball.r + sp.r - 4) ** 2) {
+                failedTimer = 0.5;
+                AudioFX.fail();
+                showToast('Ouch! Hit a spike.', false);
+                resetBall();
+                break;
+              }
+            }
+
+            // Goal test
+            if (
+              ball.x > goal.x + ball.r * 0.3 &&
+              ball.x < goal.x + goal.size - ball.r * 0.3 &&
+              ball.y > goal.y + ball.r * 0.3 &&
+              ball.y < goal.y + goal.size - ball.r * 0.3
+            ) {
+              win = true;
+              winTimer = 1.0;
+              AudioFX.score();
+              showToast('NICE SHOT!');
+              if (unlocked < levelIndex + 2) {
+                unlocked = Math.min(TOTAL_LEVELS, levelIndex + 2);
+                localStorage.setItem(STORAGE_KEY, String(unlocked));
+                updateLabels();
+              }
+            }
+
+            // Stop tiny jitter
+            if (Math.hypot(ball.vx, ball.vy) < 24 && ball.y > world.h - 20 - ball.r - 0.5) {
+              ball.vx = 0; ball.vy = 0;
+            }
+          }
+
+          if (failedTimer > 0) failedTimer -= dt;
+        } else {
+          winTimer -= dt;
+          if (winTimer <= 0) {
+            if (levelIndex + 1 < unlocked && levelIndex < TOTAL_LEVELS - 1) {
+              loadLevel(levelIndex + 1);
+            } else {
+              resetBall();
+            }
+          }
+        }
+
+        render(now * 0.001);
+        requestAnimationFrame(tick);
+      }
+
+      // ------- Render -------
+      function drawSegment(seg, color = '#9cd4ff', width = 7) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(seg.a.x, seg.a.y);
+        ctx.lineTo(seg.b.x, seg.b.y);
+        ctx.stroke();
+      }
+
+      function render(t) {
+        ctx.clearRect(0, 0, world.w, world.h);
+
+        // Background grid
+        ctx.save();
+        ctx.globalAlpha = 0.15;
+        ctx.strokeStyle = '#9fb7ff';
+        ctx.lineWidth = 1;
+        for (let x = 20; x <= world.w - 20; x += 40) {
+          ctx.beginPath(); ctx.moveTo(x, 20); ctx.lineTo(x, world.h - 20); ctx.stroke();
+        }
+        for (let y = 20; y <= world.h - 20; y += 40) {
+          ctx.beginPath(); ctx.moveTo(20, y); ctx.lineTo(world.w - 20, y); ctx.stroke();
+        }
+        ctx.restore();
+
+        // Goal
+        const pulse = 1 + Math.sin(t * 6) * 0.07;
+        ctx.save();
+        ctx.translate(goal.x + goal.size / 2, goal.y + goal.size / 2);
+        ctx.scale(pulse, pulse);
+        ctx.fillStyle = 'rgba(88,245,168,0.2)';
+        ctx.fillRect(-goal.size / 2 - 12, -goal.size / 2 - 12, goal.size + 24, goal.size + 24);
+        ctx.fillStyle = 'rgba(88,245,168,0.34)';
+        ctx.fillRect(-goal.size / 2 - 4, -goal.size / 2 - 4, goal.size + 8, goal.size + 8);
+        ctx.fillStyle = '#58f5a8';
+        ctx.fillRect(-goal.size / 2, -goal.size / 2, goal.size, goal.size);
+        ctx.restore();
+
+        // Walls
+        for (const s of segments) drawSegment(s, '#88bafc', 8);
+        for (const s of allSegments(t)) {
+          if (s.mover) drawSegment(s, '#ffc56b', 9);
+        }
+
+        // Spikes
+        for (const sp of spikes) {
+          const points = 7;
+          ctx.save();
+          ctx.translate(sp.x, sp.y);
+          ctx.rotate(t * 0.6);
+          ctx.fillStyle = '#ff6b7a';
+          ctx.beginPath();
+          for (let i = 0; i < points; i++) {
+            const a = (i / points) * Math.PI * 2;
+            const r = i % 2 === 0 ? sp.r : sp.r * 0.48;
+            const x = Math.cos(a) * r;
+            const y = Math.sin(a) * r;
+            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+          }
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+        }
+
+        // Aim + trajectory preview
+        if (isDragging && dragPos && !ball.launched) {
+          const dx = ball.x - dragPos.x;
+          const dy = ball.y - dragPos.y;
+          const d = Math.hypot(dx, dy);
+          const pull = d;
+          const nx = d > 0 ? dx / d : 0;
+          const ny = d > 0 ? dy / d : 0;
+
+          const aimX = ball.x - nx * pull;
+          const aimY = ball.y - ny * pull;
+
+          ctx.strokeStyle = 'rgba(91,231,255,0.95)';
+          ctx.lineWidth = 4;
+          ctx.setLineDash([10, 8]);
+          ctx.beginPath();
+          ctx.moveTo(ball.x, ball.y);
+          ctx.lineTo(aimX, aimY);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          const preview = simulateTrajectory(ball.x, ball.y, nx * pull * POWER_SCALE, ny * pull * POWER_SCALE, t);
+          ctx.fillStyle = 'rgba(91,231,255,0.85)';
+          for (let i = 0; i < preview.length; i++) {
+            const p = preview[i];
+            const r = Math.max(2, 5 - i * 0.08);
+            ctx.globalAlpha = 1 - i / preview.length;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.globalAlpha = 1;
+        }
+
+        // Ball
+        const speed = Math.hypot(ball.vx, ball.vy);
+        const glow = Math.min(1, speed / 1000);
+        ctx.save();
+        ctx.shadowColor = `rgba(91, 231, 255, ${0.35 + glow * 0.45})`;
+        ctx.shadowBlur = 18 + glow * 20;
+        ctx.fillStyle = '#5be7ff';
+        ctx.beginPath();
+        ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        // Win sparkles
+        if (win) {
+          for (let i = 0; i < 16; i++) {
+            const a = (i / 16) * Math.PI * 2 + t * 5;
+            const rr = 34 + (1 - winTimer) * 150;
+            const gx = goal.x + goal.size / 2;
+            const gy = goal.y + goal.size / 2;
+            const x = gx + Math.cos(a) * rr;
+            const y = gy + Math.sin(a) * rr;
+            ctx.fillStyle = `hsla(${150 + i * 8}, 100%, 70%, ${Math.max(0, winTimer)})`;
+            ctx.beginPath();
+            ctx.arc(x, y, 4, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+      }
+
+      function resize() {
+        const rect = wrap.getBoundingClientRect();
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const h = Math.max(300, rect.height);
+        canvas.width = Math.floor(rect.width * dpr);
+        canvas.height = Math.floor(h * dpr);
+        canvas.style.width = `${rect.width}px`;
+        canvas.style.height = `${h}px`;
+        viewport.scale = Math.min(rect.width / world.w, h / world.h);
+        viewport.ox = (rect.width - world.w * viewport.scale) * 0.5;
+        viewport.oy = (h - world.h * viewport.scale) * 0.5;
+        ctx.setTransform(viewport.scale * dpr, 0, 0, viewport.scale * dpr, viewport.ox * dpr, viewport.oy * dpr);
+      }
+
+      window.addEventListener('resize', resize);
+      loadLevel(0);
+      resize();
+      requestAnimationFrame((t) => { last = t; tick(t); });
+    })();
+  </script>
+</body>
+</html>
